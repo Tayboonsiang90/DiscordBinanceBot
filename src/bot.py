@@ -9,6 +9,8 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import asyncio
+import io
+import json
 import logging
 import os
 import time
@@ -283,7 +285,9 @@ HELP_TEXT = f"""
 • `{PREFIX}addalert <ticker> <price> [note]` — Add one alert
 • `{PREFIX}bulkaddalert <ticker> <price1> <price2> ... [note]` — Add multiple alerts at once, e.g. `{PREFIX}bulkaddalert BTC 250000 200000 190000 https://polymarket.com/...`
 • `{PREFIX}removealert <id>` — Remove alert by ID
-• `{PREFIX}listalerts` — List all alerts
+• `{PREFIX}listalerts` — List all alerts (paginated)
+• `{PREFIX}exportalerts` — Download backup file (run before redeploy)
+• `{PREFIX}importalerts` — Restore from backup (attach the .json file)
 • `{PREFIX}help` — Show this help
 • `{PREFIX}debug [ticker]` — Show current 1m candle data (default: BTC)
 • `{PREFIX}setinterval <seconds>` — Set poll interval (30–300)
@@ -349,6 +353,90 @@ async def on_message(message: discord.Message) -> None:
         pages = _pack_into_pages(lines, add_no_channel=not _has_announcement_channel())
         view = ListAlertsView(pages=pages, author_id=message.author.id)
         await message.reply(content=view._page_content(), view=view)
+
+    elif cmd == "exportalerts":
+        alerts = get_all_alerts()
+        if not alerts:
+            await message.reply("No alerts to export.")
+            return
+        data = {
+            "version": 1,
+            "alerts": [
+                {
+                    "ticker": a.ticker,
+                    "strike_price": a.strike_price,
+                    "direction": a.direction,
+                    "note": a.note or "",
+                }
+                for a in alerts
+            ],
+        }
+        buf = io.BytesIO(json.dumps(data, indent=2).encode("utf-8"))
+        buf.seek(0)
+        await message.reply(
+            f"Here is your backup ({len(alerts)} alerts). Save this file and use `!importalerts` with it after redeploy.",
+            file=discord.File(buf, filename="alerts_backup.json"),
+        )
+
+    elif cmd == "importalerts":
+        if not message.attachments:
+            await message.reply(
+                f"Attach your backup file to this message.\n"
+                f"Usage: Run `!importalerts` and drag/drop your `alerts_backup.json` file (from `!exportalerts`)."
+            )
+            return
+        att = message.attachments[0]
+        if not att.filename.lower().endswith(".json"):
+            await message.reply("Please attach a .json file (from `!exportalerts`).")
+            return
+        try:
+            content = await att.read()
+            data = json.loads(content.decode("utf-8"))
+        except json.JSONDecodeError as e:
+            await message.reply(f"Invalid JSON: {e}")
+            return
+        alerts_data = data.get("alerts", data) if isinstance(data, dict) else data
+        if not isinstance(alerts_data, list):
+            await message.reply("Backup file must contain a list of alerts or an object with an 'alerts' key.")
+            return
+        added = 0
+        skipped = 0
+        errors = []
+        for i, item in enumerate(alerts_data):
+            if not isinstance(item, dict):
+                errors.append(f"Row {i + 1}: not an object")
+                skipped += 1
+                continue
+            ticker = item.get("ticker") or item.get("symbol", "")
+            try:
+                strike = float(item.get("strike_price", item.get("price", 0)))
+            except (TypeError, ValueError):
+                errors.append(f"Row {i + 1}: invalid strike_price")
+                skipped += 1
+                continue
+            if not ticker or strike <= 0:
+                skipped += 1
+                continue
+            direction = item.get("direction", "touch")
+            if direction not in ("up", "down", "touch"):
+                direction = "touch"
+            note = item.get("note", "") or ""
+            try:
+                add_alert(ticker=ticker, strike_price=strike, direction=direction, note=note)
+                added += 1
+            except Exception as e:
+                errors.append(f"Row {i + 1}: {e}")
+                skipped += 1
+        reply = f"Imported **{added}** alerts."
+        if skipped:
+            reply += f" Skipped {skipped}."
+        if errors and len(errors) <= 5:
+            reply += "\n" + "\n".join(errors)
+        elif errors:
+            reply += f"\n({len(errors)} errors — check format)"
+        if not _has_announcement_channel():
+            reply += NO_CHANNEL_REMINDER
+        await message.reply(reply)
 
     elif cmd == "addalert":
         # !addalert BTC 100000 Key resistance

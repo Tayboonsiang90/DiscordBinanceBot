@@ -87,7 +87,7 @@ In the **Environment** section:
 | `DISCORD_GUILD_ID` | Your server/guild ID | No |
 
 - **DISCORD_TOKEN:** From [Discord Developer Portal](https://discord.com/developers/applications) → Your Application → Bot → Reset Token → Copy
-- **DISCORD_GUILD_ID:** Right-click your Discord server → Copy Server ID (requires Developer Mode in Discord settings)
+- **DISCORD_GUILD_ID:** Optional; bot syncs commands to all servers it's in
 
 ### Step 5: Deploy
 
@@ -106,7 +106,7 @@ Click **Create Background Worker**. Render will build and start the bot. Check t
 - **Worker vs Web Service:** This is a **Background Worker** (no HTTP server). Use "Background Worker" when creating the service.
 - **Ephemeral disk:** On Render, the filesystem is ephemeral. Alerts stored in SQLite reset on redeploy. Re-add alerts via `/addalert` after a deploy.
 - **Free tier:** Render's free tier may spin down workers after inactivity; paid plans keep them running 24/7.
-- **Blueprint (render.yaml):** The repo includes `render.yaml`. You can use **Blueprint** to deploy from the YAML, but you still must add `DISCORD_TOKEN` and `DISCORD_GUILD_ID` in the dashboard.
+- **Blueprint (render.yaml):** The repo includes `render.yaml`. You can use **Blueprint** to deploy from the YAML, but you still must add `DISCORD_TOKEN` in the dashboard.
 
 ---
 
@@ -125,6 +125,7 @@ Click **Create Background Worker**. Render will build and start the bot. Check t
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Select your application → OAuth2 → URL Generator
-3. Scopes: `bot`, `applications.commands`
-4. Bot Permissions: Send Messages, Embed Links
-5. Copy the generated URL and open it in a browser to invite the bot
+3. **Scopes:** `bot`, `applications.commands`
+4. **Bot Permissions:** Check **Administrator** (simplest—avoids permission issues; this bot does not handle sensitive data)
+5. Copy the generated URL and open it in a browser
+6. Select any server and authorize—the bot works in any server you add it to

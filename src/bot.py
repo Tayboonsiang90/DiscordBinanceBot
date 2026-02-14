@@ -39,6 +39,7 @@ DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID")
 ANNOUNCEMENT_CHANNEL_KEY = "announcement_channel_id"
 
 intents = discord.Intents.default()
+intents.message_content = True  # Required to read DM content (enable in Developer Portal → Bot → Message Content Intent)
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
@@ -147,6 +148,30 @@ async def setchannel(
         f"Announcement channel set to {target.mention}",
         ephemeral=True,
     )
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    """Diagnostic: reply to DM when user sends ping, hello, help, or diagnostic."""
+    if message.author.bot:
+        return
+    if not isinstance(message.channel, discord.DMChannel):
+        return
+
+    content = (message.content or "").strip().lower()
+    if content not in ("ping", "hello", "help", "diagnostic"):
+        return
+
+    guilds = [f"• {g.name} (id={g.id})" for g in bot.guilds]
+    guild_list = "\n".join(guilds) if guilds else "None"
+    await message.channel.send(
+        f"**Bot is online and receiving DMs.**\n\n"
+        f"**Servers I'm in:**\n{guild_list}\n\n"
+        f"**Slash commands:** /setchannel, /addalert, /listalerts, /removealert\n"
+        f"If they don't appear, re-invite with `applications.commands` scope.\n"
+        f"Enable **Message Content Intent** in Developer Portal → Bot if this DM didn't work."
+    )
+    logger.info("Diagnostic DM from %s", message.author)
 
 
 async def alert_loop() -> None:

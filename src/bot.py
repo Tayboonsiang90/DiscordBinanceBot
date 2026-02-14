@@ -1,9 +1,16 @@
 """Discord bot with slash commands for Binance price alerts."""
 
+import sys
+from pathlib import Path
+
+# Ensure project root is on path (for both "python src/bot.py" and "python -m src.bot")
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import asyncio
 import logging
 import os
-from pathlib import Path
 
 import discord
 from discord import app_commands

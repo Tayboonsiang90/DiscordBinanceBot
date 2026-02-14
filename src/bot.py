@@ -157,15 +157,22 @@ NO_CHANNEL_REMINDER = f"\n\n⚠️ **No announcement channel set.** Run `!setcha
 MAX_PAGE_CHARS = 1950  # Leave room under 2000 for safety
 
 
+def _format_note_for_display(note: str) -> str:
+    """Format note for listalerts: use [link](url) for URLs so full URL is clickable."""
+    if not note:
+        return ""
+    note = note.strip()
+    if note.lower().startswith(("http://", "https://")):
+        return f" — [link]({note})"  # Full URL preserved, short clickable label
+    return f" — {(note[:45] + "…") if len(note) > 45 else note}"
+
+
 def _build_alert_lines(alerts: list) -> list[str]:
-    """Build display lines for alerts (truncate long notes)."""
+    """Build display lines for alerts (URLs as markdown links to preserve full URL)."""
     lines = []
     for a in alerts:
         display = _format_ticker(a.ticker)
-        note_str = ""
-        if a.note:
-            n = (a.note[:45] + "…") if len(a.note) > 45 else a.note
-            note_str = f" — {n}"
+        note_str = _format_note_for_display(a.note or "")
         lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
     return lines
 

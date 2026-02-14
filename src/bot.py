@@ -234,7 +234,7 @@ async def on_message(message: discord.Message) -> None:
             alert = add_alert(ticker=ticker, strike_price=strike_price, note=note)
             display = _format_ticker(alert.ticker)
             await message.reply(
-                f"Alert #{alert.id} added: **{display}** {direction} @ ${strike_price:,.2f}"
+                f"Alert #{alert.id} added: **{display}** @ ${strike_price:,.2f}"
                 + (f"\nNote: {note}" if note else "")
             )
         except Exception as e:

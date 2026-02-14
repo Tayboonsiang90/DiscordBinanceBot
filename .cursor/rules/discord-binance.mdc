@@ -1,0 +1,18 @@
+---
+description: Discord bot and Binance API integration patterns
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Discord Bot
+- Use discord.py (commands.Bot, app_commands)
+- Store bot token in DISCORD_TOKEN env var
+- Use embeds for alert messages (title, fields, color)
+
+# Binance API
+- Use python-binance Client for klines (no API key needed for public data)
+- Symbol format: BTCUSDT (no slash)
+- 1-min interval: Client.KLINE_INTERVAL_1MINUTE
+- Candle array: [open_time, open, high, low, close, volume, close_time, ...]
+- Index 2 = High, Index 3 = Low
+- Only fetch latest closed candle; no historical scan

@@ -1,0 +1,21 @@
+---
+description: Python coding standards for this project
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python Standards
+
+## Style
+- Follow PEP 8, use snake_case for functions/variables
+- Type hints on all function signatures
+- Use async def for I/O (Discord, Binance API)
+
+## Structure
+- src/ for main code, config/ for settings
+- Use .env for secrets (DISCORD_TOKEN)—never commit tokens
+- requirements.txt with pinned versions
+
+## Error Handling
+- Log errors with context; avoid silent failures
+- Handle Binance API rate limits and network errors

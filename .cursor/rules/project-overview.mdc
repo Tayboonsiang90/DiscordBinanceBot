@@ -1,0 +1,27 @@
+---
+description: Discord Bot + Binance crypto price alert system overview
+alwaysApply: true
+---
+
+# Binance Price Alert Discord Bot
+
+## Purpose
+Python Discord bot that monitors Binance 1-minute candles and sends Discord alerts when price targets are hit.
+
+## Core Features
+- Monitor any Binance spot pair (BTC/USDT, ETH/USDT, etc.)
+- Up alerts: 1-min candle High >= strike price
+- Down alerts: 1-min candle Low <= strike price
+- Per-alert notes shown when strike is hit
+- No historical backfill—only candles from bot startup onward
+
+## Tech Stack
+- Python 3.11+
+- discord.py (Discord bot)
+- python-binance (Binance API)
+- Render (Background Worker)
+
+## Data Flow
+1. Bot fetches latest closed 1-min candle every ~60 seconds
+2. Compares candle High/Low to configured strike prices
+3. Sends Discord embed with ticker, strike, note on hit

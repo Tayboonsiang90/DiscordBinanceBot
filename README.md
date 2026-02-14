@@ -116,7 +116,8 @@ Use the `!` prefix (message commands—work without slash commands):
 | Command | Description |
 |---------|-------------|
 | `!setchannel` | Set this channel for price alerts |
-| `!addalert <ticker> <price> [note]` | Add alert (fires when price touches strike), e.g. `!addalert BTC 100000 Key level` |
+| `!addalert <ticker> <price> [note]` | Add one alert |
+| `!bulkaddalert <ticker> <price1> <price2> ... [note]` | Add multiple alerts at once |
 | `!removealert <id>` | Remove alert by ID |
 | `!listalerts` | List all active alerts |
 | `!setinterval <seconds>` | Set poll interval (30–300) |

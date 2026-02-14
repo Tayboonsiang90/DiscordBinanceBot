@@ -184,7 +184,8 @@ async def _send_no_channel_reminder_if_due() -> None:
 HELP_TEXT = f"""
 **Message commands (use `{PREFIX}` prefix):**
 • `{PREFIX}setchannel` — Set this channel for price alerts
-• `{PREFIX}addalert <ticker> <price> [note]` — Add alert (fires when price touches strike), e.g. `{PREFIX}addalert BTC 100000 Key level`
+• `{PREFIX}addalert <ticker> <price> [note]` — Add one alert
+• `{PREFIX}bulkaddalert <ticker> <price1> <price2> ... [note]` — Add multiple alerts at once, e.g. `{PREFIX}bulkaddalert BTC 250000 200000 190000 https://polymarket.com/...`
 • `{PREFIX}removealert <id>` — Remove alert by ID
 • `{PREFIX}listalerts` — List all alerts
 • `{PREFIX}help` — Show this help
@@ -289,6 +290,46 @@ async def on_message(message: discord.Message) -> None:
         except Exception as e:
             logger.exception("Failed to add alert: %s", e)
             await message.reply(f"Failed to add alert: {e}")
+
+    elif cmd == "bulkaddalert":
+        # !bulkaddalert BTC 250000 200000 190000 https://polymarket.com/...
+        if len(parts) < 3:
+            await message.reply(
+                f"Usage: `{PREFIX}bulkaddalert <ticker> <price1> <price2> ... [note]`\n"
+                f"Example: `{PREFIX}bulkaddalert BTC 250000 200000 190000 polymarket link`"
+            )
+            return
+        ticker = parts[1]
+        prices: list[float] = []
+        note = ""
+        for i, p in enumerate(parts[2:]):
+            try:
+                v = float(p)
+                if v <= 0:
+                    await message.reply(f"Price must be positive (got {v}).")
+                    return
+                prices.append(v)
+            except ValueError:
+                note = " ".join(parts[2 + i :])
+                break
+        if not prices:
+            await message.reply("At least one price is required.")
+            return
+        try:
+            added = []
+            for strike_price in prices:
+                alert = add_alert(ticker=ticker, strike_price=strike_price, note=note)
+                added.append(f"#{alert.id} ${strike_price:,.0f}")
+            display = _format_ticker(alert.ticker)
+            reply = f"Added **{len(added)}** alerts for **{display}**: " + ", ".join(added)
+            if note:
+                reply += f"\nNote: {note}"
+            if not _has_announcement_channel():
+                reply += NO_CHANNEL_REMINDER
+            await message.reply(reply)
+        except Exception as e:
+            logger.exception("Failed to bulk add alerts: %s", e)
+            await message.reply(f"Failed to bulk add alerts: {e}")
 
     elif cmd == "debug":
         ticker = parts[1] if len(parts) > 1 else "BTC"

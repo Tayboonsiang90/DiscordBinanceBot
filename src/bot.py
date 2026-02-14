@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID")
 ANNOUNCEMENT_CHANNEL_KEY = "announcement_channel_id"
+POLL_INTERVAL_KEY = "poll_interval_seconds"
+MIN_POLL_INTERVAL = 30
+MAX_POLL_INTERVAL = 300
+DEFAULT_POLL_INTERVAL = 60
 
 intents = discord.Intents.default()
 intents.message_content = True  # Required to read DM content (enable in Developer Portal → Bot → Message Content Intent)
@@ -154,6 +158,8 @@ HELP_TEXT = f"""
 • `{PREFIX}listalerts` — List all alerts
 • `{PREFIX}help` — Show this help
 • `{PREFIX}debug [ticker]` — Show current 1m candle data (default: BTC)
+• `{PREFIX}setinterval <seconds>` — Set poll interval (30–300)
+• `{PREFIX}interval` — Show current poll interval
 """
 
 
@@ -261,6 +267,33 @@ async def on_message(message: discord.Message) -> None:
             f"Open: {candle['open_time']} | Close: {candle['close_time']}"
         )
 
+    elif cmd == "setinterval":
+        if len(parts) < 2:
+            current = get_setting(POLL_INTERVAL_KEY) or str(DEFAULT_POLL_INTERVAL)
+            await message.reply(
+                f"Current polling interval: **{current}** seconds (range: {MIN_POLL_INTERVAL}–{MAX_POLL_INTERVAL})\n"
+                f"Usage: `{PREFIX}setinterval <seconds>`"
+            )
+            return
+        try:
+            seconds = int(parts[1])
+        except ValueError:
+            await message.reply("Interval must be a number.")
+            return
+        if seconds < MIN_POLL_INTERVAL or seconds > MAX_POLL_INTERVAL:
+            await message.reply(
+                f"Interval must be between {MIN_POLL_INTERVAL} and {MAX_POLL_INTERVAL} seconds."
+            )
+            return
+        set_setting(POLL_INTERVAL_KEY, str(seconds))
+        await message.reply(f"Polling interval set to **{seconds}** seconds.")
+
+    elif cmd == "interval":
+        current = get_setting(POLL_INTERVAL_KEY) or str(DEFAULT_POLL_INTERVAL)
+        await message.reply(
+            f"Current polling interval: **{current}** seconds (range: {MIN_POLL_INTERVAL}–{MAX_POLL_INTERVAL})"
+        )
+
     elif cmd == "removealert":
         if len(parts) < 2:
             await message.reply(f"Usage: `{PREFIX}removealert <id>`")
@@ -280,10 +313,23 @@ async def on_message(message: discord.Message) -> None:
         await message.reply(f"Unknown command. Use `{PREFIX}help` for commands.")
 
 
+def _get_poll_interval() -> int:
+    """Get poll interval from settings, clamped to valid range."""
+    raw = get_setting(POLL_INTERVAL_KEY)
+    if not raw:
+        return DEFAULT_POLL_INTERVAL
+    try:
+        secs = int(raw)
+        return max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, secs))
+    except ValueError:
+        return DEFAULT_POLL_INTERVAL
+
+
 async def alert_loop() -> None:
-    """Background task: check alerts every 60 seconds."""
+    """Background task: check alerts at configured interval."""
     await bot.wait_until_ready()
-    logger.info("Alert loop started.")
+    interval = _get_poll_interval()
+    logger.info("Alert loop started (interval=%ds).", interval)
 
     while not bot.is_closed():
         try:
@@ -292,22 +338,23 @@ async def alert_loop() -> None:
 
             if channel_id:
                 channel = bot.get_channel(channel_id)
+                if channel is None:
+                    try:
+                        channel = await bot.fetch_channel(channel_id)
+                    except discord.NotFound:
+                        channel = None
                 if channel:
                     await check_alerts_and_send(channel, fallback_channel_id=channel_id)
                 else:
                     logger.warning("Announcement channel %s not found.", channel_id)
             else:
-                # No channel set; try first available text channel
-                for guild in bot.guilds:
-                    for ch in guild.text_channels:
-                        if ch.permissions_for(guild.me).send_messages:
-                            await check_alerts_and_send(ch)
-                            break
-                    break
+                # No channel set; skip. User must run !setchannel (DB resets on redeploy)
+                pass
         except Exception as e:
             logger.exception("Alert loop error: %s", e)
 
-        await asyncio.sleep(60)
+        interval = _get_poll_interval()
+        await asyncio.sleep(interval)
 
 
 @bot.event

@@ -119,6 +119,8 @@ Use the `!` prefix (message commands—work without slash commands):
 | `!addalert <ticker> <price> [note]` | Add alert (fires when price touches strike), e.g. `!addalert BTC 100000 Key level` |
 | `!removealert <id>` | Remove alert by ID |
 | `!listalerts` | List all active alerts |
+| `!setinterval <seconds>` | Set poll interval (30–300) |
+| `!interval` | Show current poll interval |
 | `!help` | Show command help |
 
 ---

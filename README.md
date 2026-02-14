@@ -27,7 +27,7 @@ A Python Discord bot that monitors Binance 1-minute candles and sends Discord al
 
 3. **Run the bot**
    ```bash
-   python src/bot.py
+   python -m src.bot
    ```
 
 4. **Configure the announcement channel**
@@ -75,7 +75,7 @@ A Python Discord bot that monitors Binance 1-minute candles and sends Discord al
 | **Name** | `binance-alert-bot` (or any name) |
 | **Environment** | Python |
 | **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `python src/bot.py` |
+| **Start Command** | `python -m src.bot` |
 
 ### Step 4: Add Environment Variables
 

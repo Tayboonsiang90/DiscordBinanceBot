@@ -3,4 +3,4 @@ services:
     name: binance-alert-bot
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python src/bot.py
+    startCommand: python -m src.bot

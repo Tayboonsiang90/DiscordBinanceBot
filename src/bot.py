@@ -11,6 +11,7 @@ if str(_project_root) not in sys.path:
 import asyncio
 import logging
 import os
+import time
 
 import discord
 from discord import app_commands
@@ -45,6 +46,7 @@ DEFAULT_POLL_INTERVAL = 60
 
 intents = discord.Intents.default()
 intents.message_content = True  # Required to read DM content (enable in Developer Portal → Bot → Message Content Intent)
+intents.reactions = True  # Required for reaction-add events (delete alert on trash click)
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
@@ -150,6 +152,35 @@ async def setchannel(
 
 PREFIX = "!"
 
+NO_CHANNEL_REMINDER = f"\n\n⚠️ **No announcement channel set.** Run `!setchannel` in your desired channel to receive alerts."
+
+
+def _has_announcement_channel() -> bool:
+    return bool(get_setting(ANNOUNCEMENT_CHANNEL_KEY))
+
+
+_last_no_channel_reminder: float = 0
+REMINDER_COOLDOWN = 3600  # 1 hour
+
+
+async def _send_no_channel_reminder_if_due() -> None:
+    global _last_no_channel_reminder
+    if time.time() - _last_no_channel_reminder < REMINDER_COOLDOWN:
+        return
+    _last_no_channel_reminder = time.time()
+    for guild in bot.guilds:
+        for ch in guild.text_channels:
+            if ch.permissions_for(guild.me).send_messages:
+                try:
+                    await ch.send(
+                        "⚠️ **Binance Alert Bot:** No announcement channel set. "
+                        "Alerts won't be sent. Run `!setchannel` in your desired channel."
+                    )
+                    return
+                except Exception:
+                    continue
+
+
 HELP_TEXT = f"""
 **Message commands (use `{PREFIX}` prefix):**
 • `{PREFIX}setchannel` — Set this channel for price alerts
@@ -197,7 +228,10 @@ async def on_message(message: discord.Message) -> None:
     cmd = parts[0].lower()
 
     if cmd == "help":
-        await message.reply(HELP_TEXT)
+        reply = HELP_TEXT
+        if not _has_announcement_channel():
+            reply += NO_CHANNEL_REMINDER
+        await message.reply(reply)
 
     elif cmd == "setchannel":
         if not message.guild:
@@ -209,14 +243,20 @@ async def on_message(message: discord.Message) -> None:
     elif cmd == "listalerts":
         alerts = get_all_alerts()
         if not alerts:
-            await message.reply("No active alerts.")
+            reply = "No active alerts."
+            if not _has_announcement_channel():
+                reply += NO_CHANNEL_REMINDER
+            await message.reply(reply)
             return
         lines = []
         for a in alerts:
             display = _format_ticker(a.ticker)
             note_str = f" — {a.note}" if a.note else ""
             lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
-        await message.reply("**Active Alerts:**\n" + "\n".join(lines))
+        reply = "**Active Alerts:**\n" + "\n".join(lines)
+        if not _has_announcement_channel():
+            reply += NO_CHANNEL_REMINDER
+        await message.reply(reply)
 
     elif cmd == "addalert":
         # !addalert BTC 100000 Key resistance
@@ -239,10 +279,13 @@ async def on_message(message: discord.Message) -> None:
         try:
             alert = add_alert(ticker=ticker, strike_price=strike_price, note=note)
             display = _format_ticker(alert.ticker)
-            await message.reply(
+            reply = (
                 f"Alert #{alert.id} added: **{display}** @ ${strike_price:,.2f}"
                 + (f"\nNote: {note}" if note else "")
             )
+            if not _has_announcement_channel():
+                reply += NO_CHANNEL_REMINDER
+            await message.reply(reply)
         except Exception as e:
             logger.exception("Failed to add alert: %s", e)
             await message.reply(f"Failed to add alert: {e}")
@@ -348,13 +391,39 @@ async def alert_loop() -> None:
                 else:
                     logger.warning("Announcement channel %s not found.", channel_id)
             else:
-                # No channel set; skip. User must run !setchannel (DB resets on redeploy)
-                pass
+                # No channel set; send reminder once per hour if there are alerts
+                if get_all_alerts():
+                    await _send_no_channel_reminder_if_due()
         except Exception as e:
             logger.exception("Alert loop error: %s", e)
 
         interval = _get_poll_interval()
         await asyncio.sleep(interval)
+
+
+TRASH_EMOJI = "\N{WASTEBASKET}"  # 🗑️
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
+    """Delete alert message when user clicks trash reaction."""
+    if payload.user_id == bot.user.id:
+        return
+    if str(payload.emoji) != TRASH_EMOJI and payload.emoji.name != "wastebasket":
+        return
+    channel = bot.get_channel(payload.channel_id) or await bot.fetch_channel(payload.channel_id)
+    if not channel:
+        return
+    try:
+        message = await channel.fetch_message(payload.message_id)
+    except discord.NotFound:
+        return
+    if message.author.id != bot.user.id:
+        return
+    try:
+        await message.delete()
+    except discord.Forbidden:
+        pass
 
 
 @bot.event

@@ -82,7 +82,8 @@ async def check_alerts_and_send(
 
                 embed = _build_alert_embed(alert, price_value, candle)
                 try:
-                    await channel.send(embed=embed)
+                    msg = await channel.send(embed=embed)
+                    await msg.add_reaction("\N{WASTEBASKET}")  # 🗑️ trash - click to delete
                 except Exception as e:
                     logger.exception("Failed to send alert embed: %s", e)
 

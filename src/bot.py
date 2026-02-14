@@ -111,22 +111,20 @@ async def removealert_cmd(interaction: discord.Interaction, alert_id: int) -> No
         )
 
 
-@tree.command(name="listalerts", description="List all active alerts")
-async def listalerts(interaction: discord.Interaction) -> None:
-    """List all alerts."""
+@tree.command(name="listalerts", description="List all active alerts (paginated)")
+async def listalerts_slash(interaction: discord.Interaction) -> None:
+    """List all alerts with pagination."""
     alerts = get_all_alerts()
     if not alerts:
         await interaction.response.send_message("No active alerts.", ephemeral=True)
         return
 
-    lines = []
-    for a in alerts:
-        display = _format_ticker(a.ticker)
-        note_str = f" — {a.note}" if a.note else ""
-        lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
-
+    lines = _build_alert_lines(alerts)
+    pages = _pack_into_pages(lines, add_no_channel=False)  # ephemeral, no channel reminder needed
+    view = ListAlertsView(pages=pages, author_id=interaction.user.id)
     await interaction.response.send_message(
-        "**Active Alerts:**\n" + "\n".join(lines),
+        content=view._page_content(),
+        view=view,
         ephemeral=True,
     )
 
@@ -153,6 +151,104 @@ async def setchannel(
 PREFIX = "!"
 
 NO_CHANNEL_REMINDER = f"\n\n⚠️ **No announcement channel set.** Run `!setchannel` in your desired channel to receive alerts."
+
+MAX_PAGE_CHARS = 1950  # Leave room under 2000 for safety
+
+
+def _build_alert_lines(alerts: list) -> list[str]:
+    """Build display lines for alerts (truncate long notes)."""
+    lines = []
+    for a in alerts:
+        display = _format_ticker(a.ticker)
+        note_str = ""
+        if a.note:
+            n = (a.note[:45] + "…") if len(a.note) > 45 else a.note
+            note_str = f" — {n}"
+        lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
+    return lines
+
+
+def _pack_into_pages(lines: list[str], add_no_channel: bool) -> list[str]:
+    """Pack lines into pages that fill up to MAX_PAGE_CHARS each."""
+    pages: list[str] = []
+    # Reserve space for "**Active Alerts:** (page X/Y)\n" (~45 chars)
+    page_header_overhead = 45
+    max_body = MAX_PAGE_CHARS - page_header_overhead
+    current_lines: list[str] = []
+    current_len = 0
+
+    for line in lines:
+        line_len = len(line) + 1
+        if current_len + line_len > max_body and current_lines:
+            pages.append("\n".join(current_lines))
+            current_lines = [line]
+            current_len = line_len
+        else:
+            current_lines.append(line)
+            current_len += line_len
+
+    if current_lines:
+        body = "\n".join(current_lines)
+        if add_no_channel and len(body) + len(NO_CHANNEL_REMINDER) <= max_body:
+            body += NO_CHANNEL_REMINDER
+        pages.append(body)
+
+    return pages
+
+
+class ListAlertsView(discord.ui.View):
+    """Pagination view for !listalerts with ⬆️/⬇️ buttons."""
+
+    def __init__(
+        self,
+        pages: list[str],
+        *,
+        author_id: int,
+        timeout: float = 300,
+    ):
+        super().__init__(timeout=timeout)
+        self.pages = pages
+        self.author_id = author_id
+        self.current = 0
+        self._update_buttons()
+
+    def _page_content(self) -> str:
+        total = len(self.pages)
+        header = f"**Active Alerts:** (page {self.current + 1}/{total})\n"
+        return header + self.pages[self.current]
+
+    def _update_buttons(self) -> None:
+        self.prev_button.disabled = self.current <= 0
+        self.next_button.disabled = self.current >= len(self.pages) - 1
+
+    @discord.ui.button(emoji="⬆️", style=discord.ButtonStyle.secondary, row=0)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Only the user who ran the command can change pages.", ephemeral=True)
+            return
+        if self.current > 0:
+            self.current -= 1
+            self._update_buttons()
+        await interaction.response.edit_message(content=self._page_content(), view=self)
+
+    @discord.ui.button(emoji="⬇️", style=discord.ButtonStyle.secondary, row=0)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Only the user who ran the command can change pages.", ephemeral=True)
+            return
+        if self.current < len(self.pages) - 1:
+            self.current += 1
+            self._update_buttons()
+        await interaction.response.edit_message(content=self._page_content(), view=self)
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
+        try:
+            if self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
 
 
 def _has_announcement_channel() -> bool:
@@ -249,32 +345,10 @@ async def on_message(message: discord.Message) -> None:
                 reply += NO_CHANNEL_REMINDER
             await message.reply(reply)
             return
-        lines = []
-        for a in alerts:
-            display = _format_ticker(a.ticker)
-            note_str = ""
-            if a.note:
-                n = (a.note[:45] + "…") if len(a.note) > 45 else a.note
-                note_str = f" — {n}"
-            lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
-        reply = "**Active Alerts:**\n" + "\n".join(lines)
-        if not _has_announcement_channel():
-            reply += NO_CHANNEL_REMINDER
-        # Discord limit 2000 chars; split into multiple messages if needed
-        if len(reply) <= 2000:
-            await message.reply(reply)
-        else:
-            chunk = "**Active Alerts:**\n"
-            for line in lines:
-                if len(chunk) + len(line) + 1 > 1950:
-                    await message.reply(chunk)
-                    chunk = line + "\n"
-                else:
-                    chunk += line + "\n"
-            if chunk.strip():
-                if not _has_announcement_channel():
-                    chunk += NO_CHANNEL_REMINDER
-                await message.reply(chunk)
+        lines = _build_alert_lines(alerts)
+        pages = _pack_into_pages(lines, add_no_channel=not _has_announcement_channel())
+        view = ListAlertsView(pages=pages, author_id=message.author.id)
+        await message.reply(content=view._page_content(), view=view)
 
     elif cmd == "addalert":
         # !addalert BTC 100000 Key resistance

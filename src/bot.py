@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import time
+from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
@@ -158,12 +159,23 @@ MAX_PAGE_CHARS = 1950  # Leave room under 2000 for safety
 
 
 def _format_note_for_display(note: str) -> str:
-    """Format note for listalerts: use [link](url) for URLs so full URL is clickable."""
+    """Format note for listalerts: use [label](url) for URLs so full URL is clickable."""
     if not note:
         return ""
     note = note.strip()
     if note.lower().startswith(("http://", "https://")):
-        return f" — [link]({note})"  # Full URL preserved, short clickable label
+        # Polymarket: extract event slug e.g. what-price-will-bitcoin-hit-before-2027
+        try:
+            parsed = urlparse(note)
+            path = (parsed.path or "").rstrip("/")
+            if "polymarket.com" in parsed.netloc.lower() and "/event/" in path:
+                slug = path.split("/event/")[-1].split("/")[0].split("?")[0]
+                if slug:
+                    label = slug[:50] + "…" if len(slug) > 50 else slug
+                    return f" — [{label}]({note})"
+        except Exception:
+            pass
+        return f" — [link]({note})"  # Fallback for non-Polymarket URLs
     return f" — {(note[:45] + "…") if len(note) > 45 else note}"
 
 

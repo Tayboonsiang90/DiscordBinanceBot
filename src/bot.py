@@ -252,12 +252,29 @@ async def on_message(message: discord.Message) -> None:
         lines = []
         for a in alerts:
             display = _format_ticker(a.ticker)
-            note_str = f" — {a.note}" if a.note else ""
+            note_str = ""
+            if a.note:
+                n = (a.note[:45] + "…") if len(a.note) > 45 else a.note
+                note_str = f" — {n}"
             lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
         reply = "**Active Alerts:**\n" + "\n".join(lines)
         if not _has_announcement_channel():
             reply += NO_CHANNEL_REMINDER
-        await message.reply(reply)
+        # Discord limit 2000 chars; split into multiple messages if needed
+        if len(reply) <= 2000:
+            await message.reply(reply)
+        else:
+            chunk = "**Active Alerts:**\n"
+            for line in lines:
+                if len(chunk) + len(line) + 1 > 1950:
+                    await message.reply(chunk)
+                    chunk = line + "\n"
+                else:
+                    chunk += line + "\n"
+            if chunk.strip():
+                if not _has_announcement_channel():
+                    chunk += NO_CHANNEL_REMINDER
+                await message.reply(chunk)
 
     elif cmd == "addalert":
         # !addalert BTC 100000 Key resistance

@@ -54,22 +54,16 @@ def _format_ticker(ticker: str) -> str:
     return ticker
 
 
-@tree.command(name="addalert", description="Add a price alert for a crypto pair")
+@tree.command(name="addalert", description="Add a price alert (fires when price touches strike)")
 @app_commands.describe(
     ticker="Ticker (e.g. BTC, ETH, BTCUSDT)",
     strike_price="Strike price to alert on",
-    direction="Up = alert when candle High >= strike. Down = alert when candle Low <= strike",
     note="Optional note to show when alert fires",
 )
-@app_commands.choices(direction=[
-    app_commands.Choice(name="Up", value="up"),
-    app_commands.Choice(name="Down", value="down"),
-])
 async def addalert(
     interaction: discord.Interaction,
     ticker: str,
     strike_price: float,
-    direction: str,
     note: str = "",
 ) -> None:
     """Add a price alert."""
@@ -81,12 +75,11 @@ async def addalert(
         alert = add_alert(
             ticker=ticker,
             strike_price=strike_price,
-            direction=direction,
             note=note,
         )
         display_ticker = _format_ticker(alert.ticker)
         await interaction.response.send_message(
-            f"Alert #{alert.id} added: **{display_ticker}** {direction} @ ${strike_price:,.2f}"
+            f"Alert #{alert.id} added: **{display_ticker}** @ ${strike_price:,.2f}"
             + (f"\nNote: {note}" if note else ""),
             ephemeral=True,
         )
@@ -124,7 +117,7 @@ async def listalerts(interaction: discord.Interaction) -> None:
     for a in alerts:
         display = _format_ticker(a.ticker)
         note_str = f" — {a.note}" if a.note else ""
-        lines.append(f"**#{a.id}** {display} {a.direction} @ ${a.strike_price:,.2f}{note_str}")
+        lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
 
     await interaction.response.send_message(
         "**Active Alerts:**\n" + "\n".join(lines),
@@ -156,7 +149,7 @@ PREFIX = "!"
 HELP_TEXT = f"""
 **Message commands (use `{PREFIX}` prefix):**
 • `{PREFIX}setchannel` — Set this channel for price alerts
-• `{PREFIX}addalert <ticker> <price> <up|down> [note]` — Add alert, e.g. `{PREFIX}addalert BTC 100000 up Key resistance`
+• `{PREFIX}addalert <ticker> <price> [note]` — Add alert (fires when price touches strike), e.g. `{PREFIX}addalert BTC 100000 Key level`
 • `{PREFIX}removealert <id>` — Remove alert by ID
 • `{PREFIX}listalerts` — List all alerts
 • `{PREFIX}help` — Show this help
@@ -216,15 +209,15 @@ async def on_message(message: discord.Message) -> None:
         for a in alerts:
             display = _format_ticker(a.ticker)
             note_str = f" — {a.note}" if a.note else ""
-            lines.append(f"**#{a.id}** {display} {a.direction} @ ${a.strike_price:,.2f}{note_str}")
+            lines.append(f"**#{a.id}** {display} @ ${a.strike_price:,.2f}{note_str}")
         await message.reply("**Active Alerts:**\n" + "\n".join(lines))
 
     elif cmd == "addalert":
-        # !addalert BTC 100000 up Key resistance
-        if len(parts) < 4:
+        # !addalert BTC 100000 Key resistance
+        if len(parts) < 3:
             await message.reply(
-                f"Usage: `{PREFIX}addalert <ticker> <price> <up|down> [note]`\n"
-                f"Example: `{PREFIX}addalert BTC 100000 up Key resistance`"
+                f"Usage: `{PREFIX}addalert <ticker> <price> [note]`\n"
+                f"Example: `{PREFIX}addalert BTC 100000 Key level`"
             )
             return
         ticker = parts[1]
@@ -233,16 +226,12 @@ async def on_message(message: discord.Message) -> None:
         except ValueError:
             await message.reply("Price must be a number.")
             return
-        direction = parts[3].lower()
-        if direction not in ("up", "down"):
-            await message.reply("Direction must be `up` or `down`.")
-            return
-        note = " ".join(parts[4:]) if len(parts) > 4 else ""
+        note = " ".join(parts[3:]) if len(parts) > 3 else ""
         if strike_price <= 0:
             await message.reply("Price must be positive.")
             return
         try:
-            alert = add_alert(ticker=ticker, strike_price=strike_price, direction=direction, note=note)
+            alert = add_alert(ticker=ticker, strike_price=strike_price, note=note)
             display = _format_ticker(alert.ticker)
             await message.reply(
                 f"Alert #{alert.id} added: **{display}** {direction} @ ${strike_price:,.2f}"

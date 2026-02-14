@@ -4,8 +4,7 @@ A Python Discord bot that monitors Binance 1-minute candles and sends Discord al
 
 ## Features
 
-- **Up alerts:** Triggers when a 1-minute candle's **High** is >= strike price
-- **Down alerts:** Triggers when a 1-minute candle's **Low** is <= strike price
+- **Touch alerts:** Triggers when price touches the strike during a 1-minute candle (Low <= strike <= High)
 - **Notes:** Add a note to each alert; it appears in the embed when the alert fires
 - **Message commands:** `!setchannel`, `!addalert`, `!listalerts`, `!removealert`, `!help`
 - **Binance-only:** Uses Binance spot data (e.g. https://www.binance.com/en/trade/BTC_USDT, 1m chart)
@@ -35,8 +34,8 @@ A Python Discord bot that monitors Binance 1-minute candles and sends Discord al
    - Type `!setchannel`
 
 5. **Add alerts**
-   - `!addalert BTC 100000 up Key resistance`
-   - `!addalert ETH 2000 down Support level`
+   - `!addalert BTC 100000 Key resistance`
+   - `!addalert ETH 2000 Support level`
 
 ---
 
@@ -117,7 +116,7 @@ Use the `!` prefix (message commands—work without slash commands):
 | Command | Description |
 |---------|-------------|
 | `!setchannel` | Set this channel for price alerts |
-| `!addalert <ticker> <price> <up or down> [note]` | Add alert, e.g. `!addalert BTC 100000 up Key resistance` |
+| `!addalert <ticker> <price> [note]` | Add alert (fires when price touches strike), e.g. `!addalert BTC 100000 Key level` |
 | `!removealert <id>` | Remove alert by ID |
 | `!listalerts` | List all active alerts |
 | `!help` | Show command help |

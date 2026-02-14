@@ -44,12 +44,32 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ticker TEXT NOT NULL,
                 strike_price REAL NOT NULL,
-                direction TEXT NOT NULL CHECK(direction IN ('up', 'down')),
+                direction TEXT NOT NULL CHECK(direction IN ('up', 'down', 'touch')),
                 note TEXT DEFAULT '',
                 channel_id INTEGER,
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        # Migration: add 'touch' to direction (recreate if old schema)
+        cursor = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'"
+        )
+        row = cursor.fetchone()
+        if row and "'touch'" not in (row[0] or ""):
+            conn.execute("""
+                CREATE TABLE alerts_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    strike_price REAL NOT NULL,
+                    direction TEXT NOT NULL CHECK(direction IN ('up', 'down', 'touch')),
+                    note TEXT DEFAULT '',
+                    channel_id INTEGER,
+                    created_at TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("INSERT INTO alerts_new SELECT * FROM alerts")
+            conn.execute("DROP TABLE alerts")
+            conn.execute("ALTER TABLE alerts_new RENAME TO alerts")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -64,7 +84,7 @@ def init_db() -> None:
 def add_alert(
     ticker: str,
     strike_price: float,
-    direction: str,
+    direction: str = "touch",
     note: str = "",
     channel_id: Optional[int] = None,
 ) -> Alert:

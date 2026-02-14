@@ -57,7 +57,12 @@ async def check_alerts_and_send(
             hit = False
             price_value = 0.0
 
-            if alert.direction == "up" and high >= alert.strike_price:
+            # Touch: price crossed strike (low <= strike <= high)
+            if alert.direction == "touch" or not alert.direction:
+                if low <= alert.strike_price <= high:
+                    hit = True
+                    price_value = alert.strike_price
+            elif alert.direction == "up" and high >= alert.strike_price:
                 hit = True
                 price_value = high
             elif alert.direction == "down" and low <= alert.strike_price:
@@ -93,12 +98,23 @@ async def check_alerts_and_send(
 
 def _build_alert_embed(alert: Alert, price_value: float, candle: dict) -> Embed:
     """Build Discord embed for a triggered alert."""
-    direction_label = "Up" if alert.direction == "up" else "Down"
-    price_field = "Candle High" if alert.direction == "up" else "Candle Low"
+    if alert.direction == "touch" or not alert.direction:
+        direction_label = "Touched"
+        price_field = "Candle Range"
+        price_display = f"${candle['low']:,.2f} – ${candle['high']:,.2f}"
+        color = 0x3498DB  # Blue for touch
+    elif alert.direction == "up":
+        direction_label = "Up"
+        price_field = "Candle High"
+        price_display = f"${price_value:,.2f}"
+        color = 0x00FF00
+    else:
+        direction_label = "Down"
+        price_field = "Candle Low"
+        price_display = f"${price_value:,.2f}"
+        color = 0xFF0000
 
     title = f"{_format_ticker(alert.ticker)} Price Alert"
-    color = 0x00FF00 if alert.direction == "up" else 0xFF0000  # Green for up, red for down
-
     embed = Embed(
         title=title,
         color=color,
@@ -109,7 +125,7 @@ def _build_alert_embed(alert: Alert, price_value: float, candle: dict) -> Embed:
         value=f"${alert.strike_price:,.2f} ({direction_label})",
         inline=True,
     )
-    embed.add_field(name=price_field, value=f"${price_value:,.2f}", inline=True)
+    embed.add_field(name=price_field, value=price_display, inline=True)
     if alert.note:
         embed.add_field(name="Note", value=alert.note, inline=False)
 

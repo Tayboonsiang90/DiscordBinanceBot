@@ -182,13 +182,19 @@ async def alert_loop() -> None:
 @bot.event
 async def on_ready() -> None:
     """Handle bot ready."""
-    guild_id = discord.Object(id=int(DISCORD_GUILD_ID)) if DISCORD_GUILD_ID else None
-    if guild_id:
-        await tree.sync(guild=guild_id)
-        logger.info("Synced slash commands to guild %s", DISCORD_GUILD_ID)
-    else:
+    # Sync slash commands to ALL guilds the bot is in (ensures commands appear in every server)
+    synced = 0
+    for guild in bot.guilds:
+        try:
+            await tree.sync(guild=discord.Object(id=guild.id))
+            synced += 1
+            logger.info("Synced slash commands to guild: %s (id=%s)", guild.name, guild.id)
+        except Exception as e:
+            logger.warning("Failed to sync to guild %s: %s", guild.name, e)
+
+    if synced == 0:
         await tree.sync()
-        logger.info("Synced slash commands globally (may take up to 1 hour)")
+        logger.info("No guilds found; synced globally (may take up to 1 hour)")
 
     logger.info("Logged in as %s (id=%s)", bot.user, bot.user.id if bot.user else None)
 

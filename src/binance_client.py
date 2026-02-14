@@ -8,6 +8,9 @@ from binance.client import Client
 
 logger = logging.getLogger(__name__)
 
+# python-binance uses https://api.binance.com by default (Binance global spot)
+BINANCE_API_URL = "https://api.binance.com/api/v3/klines"
+
 # Candle indices: [open_time, open, high, low, close, volume, close_time, ...]
 OPEN_INDEX = 1
 HIGH_INDEX = 2
@@ -65,10 +68,10 @@ def fetch_latest_closed_candle(ticker: str) -> Optional[dict]:
         return None
 
 
-def fetch_candle_debug(ticker: str) -> Optional[dict]:
+def fetch_candle_debug(ticker: str) -> tuple[Optional[dict], Optional[str]]:
     """
     Fetch the latest closed 1m candle with full OHLCV data for debugging.
-    Returns dict with: open, high, low, close, volume, open_time, close_time
+    Returns (data_dict, None) on success, (None, error_message) on failure.
     """
     ticker = ticker.upper().replace("/", "")
     if not ticker.endswith("USDT"):
@@ -82,7 +85,7 @@ def fetch_candle_debug(ticker: str) -> Optional[dict]:
             limit=2,
         )
         if not klines:
-            return None
+            return None, "No klines returned (empty response)"
 
         candle = klines[-2] if len(klines) >= 2 else klines[-1]
         open_time_ms = int(candle[0])
@@ -96,7 +99,7 @@ def fetch_candle_debug(ticker: str) -> Optional[dict]:
             "volume": float(candle[VOLUME_INDEX]),
             "open_time": datetime.fromtimestamp(open_time_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
             "close_time": datetime.fromtimestamp(close_time_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        }
+        }, None
     except Exception as e:
         logger.exception("Failed to fetch candle debug for %s: %s", ticker, e)
-        return None
+        return None, str(e)

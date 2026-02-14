@@ -17,7 +17,7 @@ from discord import app_commands
 from dotenv import load_dotenv
 
 from src.alert_service import check_alerts_and_send
-from src.binance_client import fetch_candle_debug
+from src.binance_client import BINANCE_API_URL, fetch_candle_debug
 from src.database import (
     add_alert,
     get_all_alerts,
@@ -254,13 +254,19 @@ async def on_message(message: discord.Message) -> None:
 
     elif cmd == "debug":
         ticker = parts[1] if len(parts) > 1 else "BTC"
-        candle = fetch_candle_debug(ticker)
-        if not candle:
-            await message.reply(f"Could not fetch candle for {ticker}.")
+        candle, error = fetch_candle_debug(ticker)
+        if error:
+            await message.reply(
+                f"**Could not fetch candle for {ticker}**\n"
+                f"**API:** `{BINANCE_API_URL}`\n"
+                f"**Error:** {error}\n\n"
+                f"Binance may block some regions (e.g. US). Render servers run in US — try a different host or proxy if blocked."
+            )
             return
         display = f"{candle['ticker'][:-4]}/{candle['ticker'][-4:]}" if candle["ticker"].endswith("USDT") else candle["ticker"]
         await message.reply(
             f"**{display} — Latest closed 1m candle**\n"
+            f"**API:** `{BINANCE_API_URL}`\n"
             f"Open: ${candle['open']:,.2f} | High: ${candle['high']:,.2f} | Low: ${candle['low']:,.2f} | Close: ${candle['close']:,.2f}\n"
             f"Volume: {candle['volume']:,.2f}\n"
             f"Open: {candle['open_time']} | Close: {candle['close_time']}"

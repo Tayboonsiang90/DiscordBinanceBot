@@ -7,7 +7,7 @@ A Python Discord bot that monitors Binance 1-minute candles and sends Discord al
 - **Up alerts:** Triggers when a 1-minute candle's **High** is >= strike price
 - **Down alerts:** Triggers when a 1-minute candle's **Low** is <= strike price
 - **Notes:** Add a note to each alert; it appears in the embed when the alert fires
-- **Slash commands:** `/addalert`, `/removealert`, `/listalerts`, `/setchannel`
+- **Message commands:** `!setchannel`, `!addalert`, `!listalerts`, `!removealert`, `!help`
 - **Binance-only:** Uses Binance spot data (e.g. https://www.binance.com/en/trade/BTC_USDT, 1m chart)
 - **No historical scan:** Only monitors candles from bot startup onward
 
@@ -32,11 +32,11 @@ A Python Discord bot that monitors Binance 1-minute candles and sends Discord al
 
 4. **Configure the announcement channel**
    - In your Discord server, go to the channel where you want alerts
-   - Run `/setchannel` (optionally specify a channel)
+   - Type `!setchannel`
 
 5. **Add alerts**
-   - `/addalert ticker:BTC strike_price:100000 direction:Up note:Key resistance`
-   - `/addalert ticker:ETH strike_price:2000 direction:Down note:Support level`
+   - `!addalert BTC 100000 up Key resistance`
+   - `!addalert ETH 2000 down Support level`
 
 ---
 
@@ -96,8 +96,8 @@ Click **Create Background Worker**. Render will build and start the bot. Check t
 ### Step 6: Configure in Discord
 
 1. Wait for the bot to come online (status shows green in Discord)
-2. In your announcement channel, run: `/setchannel`
-3. Add alerts with `/addalert`
+2. In your announcement channel, type: `!setchannel`
+3. Add alerts with `!addalert BTC 100000 up` (etc.)
 
 ---
 
@@ -110,14 +110,17 @@ Click **Create Background Worker**. Render will build and start the bot. Check t
 
 ---
 
-## Slash Commands
+## Commands
+
+Use the `!` prefix (message commands—work without slash commands):
 
 | Command | Description |
 |---------|-------------|
-| `/addalert` | Add a price alert (ticker, strike_price, direction, note) |
-| `/removealert` | Remove an alert by ID |
-| `/listalerts` | List all active alerts |
-| `/setchannel` | Set the channel where alerts are posted |
+| `!setchannel` | Set this channel for price alerts |
+| `!addalert <ticker> <price> <up or down> [note]` | Add alert, e.g. `!addalert BTC 100000 up Key resistance` |
+| `!removealert <id>` | Remove alert by ID |
+| `!listalerts` | List all active alerts |
+| `!help` | Show command help |
 
 ---
 

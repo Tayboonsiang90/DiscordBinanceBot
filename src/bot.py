@@ -150,28 +150,123 @@ async def setchannel(
     )
 
 
+PREFIX = "!"
+
+HELP_TEXT = f"""
+**Message commands (use `{PREFIX}` prefix):**
+• `{PREFIX}setchannel` — Set this channel for price alerts
+• `{PREFIX}addalert <ticker> <price> <up|down> [note]` — Add alert, e.g. `{PREFIX}addalert BTC 100000 up Key resistance`
+• `{PREFIX}removealert <id>` — Remove alert by ID
+• `{PREFIX}listalerts` — List all alerts
+• `{PREFIX}help` — Show this help
+"""
+
+
 @bot.event
 async def on_message(message: discord.Message) -> None:
-    """Diagnostic: reply to DM when user sends ping, hello, help, or diagnostic."""
+    """Handle DMs (diagnostic) and server message commands (!prefix)."""
     if message.author.bot:
         return
-    if not isinstance(message.channel, discord.DMChannel):
+
+    content = (message.content or "").strip()
+    if not content:
         return
 
-    content = (message.content or "").strip().lower()
-    if content not in ("ping", "hello", "help", "diagnostic"):
+    # DM diagnostic
+    if isinstance(message.channel, discord.DMChannel):
+        if content.lower() in ("ping", "hello", "help", "diagnostic"):
+            guilds = [f"• {g.name} (id={g.id})" for g in bot.guilds]
+            guild_list = "\n".join(guilds) if guilds else "None"
+            await message.channel.send(
+                f"**Bot is online and receiving DMs.**\n\n"
+                f"**Servers I'm in:**\n{guild_list}\n\n"
+                f"**Message commands (use in a server):**{HELP_TEXT}"
+            )
+            logger.info("Diagnostic DM from %s", message.author)
         return
 
-    guilds = [f"• {g.name} (id={g.id})" for g in bot.guilds]
-    guild_list = "\n".join(guilds) if guilds else "None"
-    await message.channel.send(
-        f"**Bot is online and receiving DMs.**\n\n"
-        f"**Servers I'm in:**\n{guild_list}\n\n"
-        f"**Slash commands:** /setchannel, /addalert, /listalerts, /removealert\n"
-        f"If they don't appear, re-invite with `applications.commands` scope.\n"
-        f"Enable **Message Content Intent** in Developer Portal → Bot if this DM didn't work."
-    )
-    logger.info("Diagnostic DM from %s", message.author)
+    # Server message commands
+    if not content.startswith(PREFIX):
+        return
+
+    parts = content[len(PREFIX):].split()
+    if not parts:
+        return
+
+    cmd = parts[0].lower()
+
+    if cmd == "help":
+        await message.reply(HELP_TEXT)
+
+    elif cmd == "setchannel":
+        if not message.guild:
+            await message.reply("Use this in a server channel.")
+            return
+        set_setting(ANNOUNCEMENT_CHANNEL_KEY, str(message.channel.id))
+        await message.reply(f"Announcement channel set to {message.channel.mention}")
+
+    elif cmd == "listalerts":
+        alerts = get_all_alerts()
+        if not alerts:
+            await message.reply("No active alerts.")
+            return
+        lines = []
+        for a in alerts:
+            display = _format_ticker(a.ticker)
+            note_str = f" — {a.note}" if a.note else ""
+            lines.append(f"**#{a.id}** {display} {a.direction} @ ${a.strike_price:,.2f}{note_str}")
+        await message.reply("**Active Alerts:**\n" + "\n".join(lines))
+
+    elif cmd == "addalert":
+        # !addalert BTC 100000 up Key resistance
+        if len(parts) < 4:
+            await message.reply(
+                f"Usage: `{PREFIX}addalert <ticker> <price> <up|down> [note]`\n"
+                f"Example: `{PREFIX}addalert BTC 100000 up Key resistance`"
+            )
+            return
+        ticker = parts[1]
+        try:
+            strike_price = float(parts[2])
+        except ValueError:
+            await message.reply("Price must be a number.")
+            return
+        direction = parts[3].lower()
+        if direction not in ("up", "down"):
+            await message.reply("Direction must be `up` or `down`.")
+            return
+        note = " ".join(parts[4:]) if len(parts) > 4 else ""
+        if strike_price <= 0:
+            await message.reply("Price must be positive.")
+            return
+        try:
+            alert = add_alert(ticker=ticker, strike_price=strike_price, direction=direction, note=note)
+            display = _format_ticker(alert.ticker)
+            await message.reply(
+                f"Alert #{alert.id} added: **{display}** {direction} @ ${strike_price:,.2f}"
+                + (f"\nNote: {note}" if note else "")
+            )
+        except Exception as e:
+            logger.exception("Failed to add alert: %s", e)
+            await message.reply(f"Failed to add alert: {e}")
+
+    elif cmd == "removealert":
+        if len(parts) < 2:
+            await message.reply(f"Usage: `{PREFIX}removealert <id>`")
+            return
+        try:
+            alert_id = int(parts[1])
+        except ValueError:
+            await message.reply("ID must be a number. Use `!listalerts` to see IDs.")
+            return
+        removed = remove_alert(alert_id)
+        if removed:
+            await message.reply(f"Alert #{alert_id} removed.")
+        else:
+            await message.reply(f"Alert #{alert_id} not found.")
+
+    else:
+        await message.reply(f"Unknown command. Use `{PREFIX}help` for commands.")
 
 
 async def alert_loop() -> None:

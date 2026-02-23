@@ -13,15 +13,22 @@ import io
 import json
 import logging
 import os
+import re
 import time
+from datetime import datetime
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
 from dotenv import load_dotenv
 
 from src.alert_service import check_alerts_and_send
-from src.binance_client import BINANCE_API_URL, fetch_candle_debug
+from src.binance_client import (
+    BINANCE_API_URL,
+    fetch_1h_candle_at_start_time,
+    fetch_candle_debug,
+)
 from src.database import (
     add_alert,
     get_all_alerts,
@@ -41,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID")
+RELOAD_NOTIFY_CHANNEL_ID = os.getenv("RELOAD_NOTIFY_CHANNEL_ID")  # Optional: channel to post "bot reloaded" on startup
 ANNOUNCEMENT_CHANNEL_KEY = "announcement_channel_id"
 POLL_INTERVAL_KEY = "poll_interval_seconds"
 MIN_POLL_INTERVAL = 30
@@ -156,6 +164,72 @@ PREFIX = "!"
 NO_CHANNEL_REMINDER = f"\n\n⚠️ **No announcement channel set.** Run `!setchannel` in your desired channel to receive alerts."
 
 MAX_PAGE_CHARS = 1950  # Leave room under 2000 for safety
+
+ET = ZoneInfo("America/New_York")
+SGT = ZoneInfo("Asia/Singapore")
+
+# Month name to number for hourlycheck parsing
+_MONTH_NAMES = {
+    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+    "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+    "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10, "october": 10,
+    "nov": 11, "november": 11, "dec": 12, "december": 12,
+}
+
+
+def _parse_hourlycheck_datetime(s: str) -> int | None:
+    """
+    Parse a date/time string like 'February 16, 1-2PM ET' or 'Feb 16 1PM ET'
+    to the candle start time in UTC milliseconds. Returns None if parse fails.
+    """
+    s = (s or "").strip()
+    if not s:
+        return None
+    s_clean = s.upper().replace(" ET", "").replace("ET", "").strip()
+    # Match: Month DD, H-HPM or Month DD HPM (hour is start of range)
+    m = re.search(
+        r"([A-Za-z]+)\s+(\d{1,2})\s*,?\s*(\d{1,2})\s*(?:-\d+)?\s*(AM|PM)?",
+        s_clean,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    month_str, day_str, hour_str, ampm = m.group(1), m.group(2), m.group(3), m.group(4)
+    month = _MONTH_NAMES.get(month_str.lower().strip())
+    if not month:
+        return None
+    try:
+        day = int(day_str)
+        hour = int(hour_str)
+    except ValueError:
+        return None
+    if ampm:
+        if ampm.upper() == "PM" and hour < 12:
+            hour += 12
+        elif ampm.upper() == "AM" and hour == 12:
+            hour = 0
+    year = datetime.now(ET).year
+    try:
+        dt_et = datetime(year, month, day, hour, 0, 0, tzinfo=ET)
+    except ValueError:
+        return None
+    return int(dt_et.timestamp() * 1000)
+
+
+def _format_candle_window_et_sgt(open_ms: int, close_ms: int) -> tuple[str, str]:
+    """Return (ET window string, SGT window string) for a candle."""
+    def _fmt(d: datetime) -> str:
+        h = d.strftime("%I").lstrip("0") or "12"
+        return d.strftime(f"%B %d, %Y, {h}:%M %p")
+
+    open_et = datetime.fromtimestamp(open_ms / 1000, tz=ET)
+    close_et = datetime.fromtimestamp(close_ms / 1000, tz=ET)
+    open_sgt = datetime.fromtimestamp(open_ms / 1000, tz=SGT)
+    close_sgt = datetime.fromtimestamp(close_ms / 1000, tz=SGT)
+    return (
+        f"{_fmt(open_et)} – {_fmt(close_et)} ET",
+        f"{_fmt(open_sgt)} – {_fmt(close_sgt)} SGT",
+    )
 
 
 def _format_note_for_display(note: str) -> str:
@@ -307,6 +381,7 @@ HELP_TEXT = f"""
 • `{PREFIX}listalerts` — List all alerts (paginated)
 • `{PREFIX}exportalerts` — Download backup file (run before redeploy)
 • `{PREFIX}importalerts` — Restore from backup (attach the .json file)
+• `{PREFIX}hourlycheck <ticker> <date/time ET>` — Check if 1H candle was Up or Down (e.g. `{PREFIX}hourlycheck SOL February 16, 1-2PM ET`)
 • `{PREFIX}help` — Show this help
 • `{PREFIX}debug [ticker]` — Show current 1m candle data (default: BTC)
 • `{PREFIX}setinterval <seconds>` — Set poll interval (30–300)
@@ -529,6 +604,75 @@ async def on_message(message: discord.Message) -> None:
             logger.exception("Failed to bulk add alerts: %s", e)
             await message.reply(f"Failed to bulk add alerts: {e}")
 
+    elif cmd == "hourlycheck":
+        if len(parts) < 2:
+            await message.reply(
+                f"**Ticker is required.**\n"
+                f"Usage: `{PREFIX}hourlycheck <ticker> <date/time in ET>`\n"
+                f"Example: `{PREFIX}hourlycheck SOL February 16, 1-2PM ET`"
+            )
+            return
+        ticker = parts[1]
+        date_str = " ".join(parts[2:]).strip()
+        if not date_str:
+            await message.reply(
+                f"**Date/time is required.**\n"
+                f"Usage: `{PREFIX}hourlycheck <ticker> <date/time in ET>`\n"
+                f"Example: `{PREFIX}hourlycheck SOL February 16, 1-2PM ET`"
+            )
+            return
+        if not ticker.isalpha() or len(ticker) > 10:
+            await message.reply(
+                f"**Invalid ticker.** Use a symbol like SOL, BTC, ETH.\n"
+                f"Usage: `{PREFIX}hourlycheck <ticker> <date/time in ET>`"
+            )
+            return
+        start_ms = _parse_hourlycheck_datetime(date_str)
+        if start_ms is None:
+            await message.reply(
+                f"Could not parse date/time. Use something like: February 16, 1-2PM ET or Feb 16 1PM ET.\n"
+                f"Usage: `{PREFIX}hourlycheck <ticker> <date/time ET>`"
+            )
+            return
+        now_ms = int(time.time() * 1000)
+        if start_ms > now_ms:
+            await message.reply("That candle hasn't started yet.")
+            return
+        candle, err = fetch_1h_candle_at_start_time(ticker, start_ms)
+        if err:
+            await message.reply(f"**Hourly check failed:** {err}")
+            return
+        display_ticker = _format_ticker(candle["ticker"])
+        et_str, sgt_str = _format_candle_window_et_sgt(candle["open_time_ms"], candle["close_time_ms"])
+        if now_ms < candle["close_time_ms"]:
+            close_et = datetime.fromtimestamp(candle["close_time_ms"] / 1000, tz=ET)
+            close_sgt = datetime.fromtimestamp(candle["close_time_ms"] / 1000, tz=SGT)
+            def _fmt_close(d: datetime) -> str:
+                h = d.strftime("%I").lstrip("0") or "12"
+                return d.strftime(f"%b %d, {h}:%M %p")
+            close_et_fmt = _fmt_close(close_et) + " ET"
+            close_sgt_fmt = _fmt_close(close_sgt) + " SGT"
+            await message.reply(
+                f"**{display_ticker} 1H candle (not yet closed)**\n"
+                f"Candle: {et_str}\n"
+                f"Candle: {sgt_str}\n"
+                f"Open: ${candle['open']:,.2f}\n"
+                f"Candle not yet closed. Check again after {close_et_fmt} / {close_sgt_fmt}."
+            )
+            return
+        is_up = candle["close"] >= candle["open"]
+        result = "**Result: Up** (Close ≥ Open)" if is_up else "**Result: Down** (Close < Open)"
+        reply = (
+            f"{result}\n\n"
+            f"**Candle:** {et_str}\n"
+            f"**Candle:** {sgt_str}\n\n"
+            f"Open: ${candle['open']:,.2f} | High: ${candle['high']:,.2f} | Low: ${candle['low']:,.2f} | Close: ${candle['close']:,.2f}\n"
+            f"Volume: {candle['volume']:,.2f}\n\n"
+            f"Source: Binance {display_ticker} 1H (close and open as shown on chart).\n"
+            f"Resolves Up if Close ≥ Open, else Down."
+        )
+        await message.reply(reply)
+
     elif cmd == "debug":
         ticker = parts[1] if len(parts) > 1 else "BTC"
         candle, error = fetch_candle_debug(ticker)
@@ -683,6 +827,18 @@ async def on_ready() -> None:
         logger.info("No guilds found; synced globally (may take up to 1 hour)")
 
     logger.info("Logged in as %s (id=%s)", bot.user, bot.user.id if bot.user else None)
+
+    # Notify that bot has reloaded (works even when announcement channel isn't set yet)
+    if RELOAD_NOTIFY_CHANNEL_ID:
+        try:
+            channel = bot.get_channel(int(RELOAD_NOTIFY_CHANNEL_ID))
+            if channel is None:
+                channel = await bot.fetch_channel(int(RELOAD_NOTIFY_CHANNEL_ID))
+            if channel:
+                await channel.send("**Bot has reloaded and is back online.**")
+                logger.info("Sent reload notification to channel %s", RELOAD_NOTIFY_CHANNEL_ID)
+        except (ValueError, discord.NotFound, discord.Forbidden) as e:
+            logger.warning("Could not send reload notification: %s", e)
 
 
 def main() -> None:

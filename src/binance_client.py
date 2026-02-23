@@ -103,3 +103,46 @@ def fetch_candle_debug(ticker: str) -> tuple[Optional[dict], Optional[str]]:
     except Exception as e:
         logger.exception("Failed to fetch candle debug for %s: %s", ticker, e)
         return None, str(e)
+
+
+def fetch_1h_candle_at_start_time(
+    ticker: str,
+    start_time_utc_ms: int,
+) -> tuple[Optional[dict], Optional[str]]:
+    """
+    Fetch the single 1H candle that starts at the given UTC time (ms).
+
+    Returns (candle_dict, None) on success with keys: open, high, low, close,
+    volume, open_time_ms, close_time_ms. Returns (None, error_message) on failure.
+    """
+    ticker = ticker.upper().replace("/", "")
+    if not ticker.endswith("USDT"):
+        ticker = f"{ticker}USDT"
+
+    try:
+        client = _get_client()
+        klines = client.get_klines(
+            symbol=ticker,
+            interval=Client.KLINE_INTERVAL_1HOUR,
+            startTime=start_time_utc_ms,
+            limit=1,
+        )
+        if not klines:
+            return None, "No candle found for that time."
+
+        candle = klines[0]
+        open_time_ms = int(candle[0])
+        close_time_ms = int(candle[CLOSE_TIME_INDEX])
+        return {
+            "ticker": ticker,
+            "open": float(candle[OPEN_INDEX]),
+            "high": float(candle[HIGH_INDEX]),
+            "low": float(candle[LOW_INDEX]),
+            "close": float(candle[CLOSE_INDEX]),
+            "volume": float(candle[VOLUME_INDEX]),
+            "open_time_ms": open_time_ms,
+            "close_time_ms": close_time_ms,
+        }, None
+    except Exception as e:
+        logger.exception("Failed to fetch 1h candle for %s: %s", ticker, e)
+        return None, str(e)
